@@ -1,0 +1,23 @@
+# Cilium BASE values: used by Talos at bootstrap AND as Argo CD's first values file.
+# Keep this minimal and frozen; add features in platform-gitops components/cilium/values.yaml.
+ipam:
+  mode: kubernetes
+kubeProxyReplacement: true
+# KubePrism: Talos's local API-server load balancer on every node.
+k8sServiceHost: localhost
+k8sServicePort: 7445
+# Explicit empty value (chart default is null): Helm 3 (OpenTofu) keeps null keys but Helm 4
+# (Argo CD 3.5) drops them, which changes the agent's init-container args and would restart
+# every Cilium pod when Argo CD adopts it. An empty string renders the same in both.
+k8s:
+  apiServerURLs: ""
+cgroup:
+  autoMount:
+    enabled: false
+  hostRoot: /sys/fs/cgroup
+securityContext:
+  capabilities:
+    ciliumAgent: [CHOWN, KILL, NET_ADMIN, NET_RAW, IPC_LOCK, SYS_ADMIN, SYS_RESOURCE, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    cleanCiliumState: [NET_ADMIN, SYS_ADMIN, SYS_RESOURCE]
+hubble:
+  enabled: false
