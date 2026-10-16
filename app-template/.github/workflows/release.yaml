@@ -1,0 +1,159 @@
+# app-template release v1
+# A merge to main tests, builds and pushes every image to GHCR (tag = commit SHA), then pins them
+# in apps-gitops apps/<APP>/kustomization.yaml as your-release-app[bot]; Argo CD deploys
+# that commit. Pull requests test and build only. Edit only the two CONFIG blocks. Setup: README.md.
+name: release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Releases run one at a time, in merge order; a newer pending release replaces an older pending
+# one, so an old build never lands after a new one. Pull requests cancel their superseded runs.
+concurrency:
+  group: ${{ github.event_name == 'push' && format('release-{0}', github.repository) || format('pr-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+env:
+  # --- CONFIG: the app's folder in apps-gitops (apps/<APP>/) = its onboarded name ---
+  APP: CHANGEME
+  REGISTRY: ghcr.io/your-github-user
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Replace with your app's tests.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go vet ./... && go test ./...
+
+  build:
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        # --- CONFIG: one entry per image, published as ghcr.io/your-github-user/<name> ---
+        image:
+          - {name: app-template, context: ., file: Dockerfile, build-args: ""}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: github.event_name == 'push'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.file }}
+          build-args: ${{ matrix.image.build-args }}
+          platforms: linux/amd64
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ env.REGISTRY }}/${{ matrix.image.name }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - if: github.event_name == 'push'
+        env:
+          NAME: ${{ matrix.image.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest for $NAME"; exit 1; }
+          mkdir -p digests && echo "$NAME=$DIGEST" > "digests/$NAME"
+          echo "- \`$REGISTRY/$NAME:$GITHUB_SHA@$DIGEST\`" >> "$GITHUB_STEP_SUMMARY"
+      - if: github.event_name == 'push'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.image.name }}
+          path: digests/${{ matrix.image.name }}
+          retention-days: 7
+
+  # Pins the images in apps-gitops as the GitHub App your-release-app (a 1-hour token,
+  # write access to that repo only). Only apps/<APP>/kustomization.yaml may change.
+  promote:
+    needs: build
+    if: github.event_name == 'push' && github.repository != 'your-github-user/app-template'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: digest-*
+          merge-multiple: true
+          path: digests
+      - name: Install kustomize v5.8.1 (checksum-pinned; the version Argo CD bundles)
+        run: |
+          f=kustomize_v5.8.1_linux_amd64.tar.gz
+          curl -fsSLO "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.1/$f"
+          echo "029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d  $f" | sha256sum -c -
+          tar xzf "$f" kustomize && sudo install -m 0755 kustomize /usr/local/bin/
+      - id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: your-github-user
+          repositories: apps-gitops
+          permission-contents: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: your-github-user/apps-gitops
+          ref: main
+          token: ${{ steps.token.outputs.token }}
+          path: gitops
+      - name: Pin the images
+        working-directory: gitops
+        run: |
+          k="apps/$APP/kustomization.yaml"
+          [ -f "$k" ] || { echo "::error::$k is missing in apps-gitops"; exit 1; }
+          refs=()
+          while IFS='=' read -r name digest; do
+            refs+=("$REGISTRY/$name:$GITHUB_SHA@$digest")
+          done < <(cat ../digests/*)
+          [ "${#refs[@]}" -gt 0 ] || { echo "::error::no image digests to release"; exit 1; }
+          for ref in "${refs[@]}"; do (cd "apps/$APP" && kustomize edit set image "$ref"); done
+          # kustomize edit adds an entry even if no manifest uses that image: check the render.
+          out="$(kustomize build "apps/$APP")"
+          for ref in "${refs[@]}"; do
+            grep -qF "image: $ref" <<<"$out" || { echo "::error::no manifest in apps/$APP uses ${ref%%:*}"; exit 1; }
+          done
+          changed="$(git status --porcelain)"
+          if [ -n "$changed" ] && [ "$changed" != " M $k" ]; then
+            echo "::error::unexpected changes: $changed"; exit 1
+          fi
+      - name: Commit and push
+        working-directory: gitops
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          SLUG: ${{ steps.token.outputs.app-slug }}
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "Already released: nothing to commit." | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          id="$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)"
+          git config user.name "${SLUG}[bot]"
+          git config user.email "${id}+${SLUG}[bot]@users.noreply.github.com"
+          git commit -qam "release($APP): ${GITHUB_SHA::7}" -m "Source: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+          # Another app's release may land first: rebase onto it and retry. Never force-push.
+          for attempt in 1 2 3; do
+            if git push -q origin HEAD:main; then
+              echo "Released: https://github.com/your-github-user/apps-gitops/commit/$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep $((attempt * 5))
+            git pull -q --rebase origin main
+          done
+          echo "::error::push to apps-gitops main rejected 3 times"; exit 1
