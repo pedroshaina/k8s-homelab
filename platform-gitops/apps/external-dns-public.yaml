@@ -1,0 +1,41 @@
+# Public DNS records in Cloudflare. Reads only DNSEndpoint objects, which
+# only the platform's public-apps chart creates (teams can't: not in their kind allowlist).
+# The DNSEndpoint CRD is owned by the internal external-dns app (skipCrds here).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns-public
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: platform
+  sources:
+    - repoURL: https://kubernetes-sigs.github.io/external-dns/
+      chart: external-dns
+      targetRevision: 1.23.0
+      helm:
+        releaseName: external-dns-public
+        skipCrds: true
+        valueFiles:
+          - $values/components/external-dns-public/values.yaml
+    - repoURL: git@github.com:your-github-user/platform-gitops.git
+      targetRevision: main
+      ref: values
+    - repoURL: git@github.com:your-github-user/platform-gitops.git
+      targetRevision: main
+      path: components/external-dns-public
+      directory:
+        include: external-secret.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns-public
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: restricted
+    syncOptions:
+      - CreateNamespace=true

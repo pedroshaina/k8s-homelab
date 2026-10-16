@@ -1,0 +1,20 @@
+# App-of-apps: the one Application applied by hand at bootstrap. It watches apps/ of
+# this repo, where every other Application (including Argo CD itself) and the AppProjects live.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: git@github.com:your-github-user/platform-gitops.git
+    targetRevision: main
+    path: apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

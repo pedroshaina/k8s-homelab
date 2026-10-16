@@ -1,0 +1,30 @@
+# Alloy Helm values, release "alloy-events": one replica turning Kubernetes
+# Events into log lines (they otherwise expire after 1 h). Separate from the DaemonSet so each
+# event is shipped once, not once per node.
+controller:
+  type: deployment
+  replicas: 1
+alloy:
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 128Mi}
+  configMap:
+    content: |
+      loki.source.kubernetes_events "events" {
+        job_name   = "kubernetes-events"
+        log_format = "logfmt"
+        forward_to = [loki.process.events.receiver]
+      }
+      loki.process "events" {
+        stage.static_labels {
+          values = { source = "event" }
+        }
+        forward_to = [loki.write.loki.receiver]
+      }
+      loki.write "loki" {
+        endpoint {
+          url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
+        }
+      }
+serviceMonitor:
+  enabled: true

@@ -1,0 +1,32 @@
+# Public apps: renders components/public-apps with the team onboarding file,
+# so only apps marked public: true get a tunnel route and a public DNS record. Wave 3: after the
+# Gateway (wave 1) and external-dns-public with the DNSEndpoint CRD (wave 2).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: public-apps
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: platform
+  sources:
+    - repoURL: git@github.com:your-github-user/platform-gitops.git
+      targetRevision: main
+      path: components/public-apps
+      helm:
+        valueFiles:
+          - values.yaml
+          - $values/components/teams/values.yaml
+    - repoURL: git@github.com:your-github-user/platform-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cloudflared
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - SkipDryRunOnMissingResource=true # DNSEndpoint CRD may not exist yet (rebuild)

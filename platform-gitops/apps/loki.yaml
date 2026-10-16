@@ -1,0 +1,35 @@
+# Loki: log storage, fed by Alloy, queried from Grafana. Wave 3: its PVC
+# needs the CSI plugin (wave 2).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: platform
+  sources:
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: loki
+      targetRevision: 7.3.0
+      helm:
+        releaseName: loki
+        valueFiles:
+          - $values/components/loki/values.yaml
+    - repoURL: git@github.com:your-github-user/platform-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry: # namespace monitoring comes from kube-prometheus-stack, same wave: wait for it on a rebuild
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

@@ -1,0 +1,25 @@
+# Prometheus Operator CRDs. Apart from kube-prometheus-stack so every other
+# app (Argo CD and ESO are wave -1) can ship ServiceMonitors, and so a stack upgrade or removal
+# never deletes them (and every monitor with them). Wave -2: the earliest Application wave.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus-operator-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  project: platform
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: prometheus-operator-crds
+    targetRevision: 32.0.1
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring # unused: CRDs are cluster-scoped
+  syncPolicy:
+    automated:
+      prune: false # removing a CRD deletes every object of its kind: never automatically
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true # the CRDs exceed the client-side last-applied annotation limit

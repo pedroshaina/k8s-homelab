@@ -1,0 +1,185 @@
+# Unit tests for platform.yaml (promtool test rules, run in CI).
+rule_files: [platform.yaml]
+evaluation_interval: 1m
+tests:
+  - name: Argo CD
+    interval: 1m
+    input_series:
+      - series: 'argocd_app_info{namespace="argocd", name="loki", sync_status="OutOfSync", health_status="Healthy"}'
+        values: '1x20'
+      - series: 'argocd_app_info{namespace="argocd", name="demo", sync_status="Synced", health_status="Degraded"}'
+        values: '1x20'
+      - series: 'argocd_app_info{namespace="argocd", name="cilium", sync_status="Synced", health_status="Healthy"}'
+        values: '1x20'
+      - series: 'kube_pod_container_status_restarts_total{namespace="argocd", pod="argocd-repo-server-x", container="argocd-repo-server"}'
+        values: '0 0 1 1 2 2 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: ArgoCDAppOutOfSync
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: argocd, name: loki}
+            exp_annotations:
+              summary: "Argo CD Application loki is OutOfSync"
+              description: "loki has not matched Git for 15 minutes; check argocd app diff loki."
+      - eval_time: 16m
+        alertname: ArgoCDAppUnhealthy
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: argocd, name: demo, health_status: Degraded}
+            exp_annotations:
+              summary: "Argo CD Application demo is Degraded"
+              description: "demo has been Degraded for 15 minutes; check argocd app get demo."
+      - eval_time: 10m
+        alertname: ArgoCDRepoServerRestarting
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: argocd, pod: argocd-repo-server-x, container: argocd-repo-server}
+            exp_annotations:
+              summary: "argocd-repo-server restarted 3 times in the last hour"
+              description: "Often cluster DNS failing: check CoreDNS and dns01. Apps show Unknown while it restarts."
+  - name: CoreDNS
+    interval: 1m
+    input_series:
+      - series: 'coredns_dns_responses_total{rcode="NOERROR"}'
+        values: '0+90x20'
+      - series: 'coredns_dns_responses_total{rcode="SERVFAIL"}'
+        values: '0+10x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: CoreDNSServfailHigh
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: kube-system}
+            exp_annotations:
+              summary: "CoreDNS answers 10% of queries with SERVFAIL"
+              description: "Upstream resolution is failing (dns01, then the router): check that dns01 is up and resolving."
+  - name: cert-manager
+    interval: 1m
+    input_series:
+      - series: 'certmanager_certificate_ready_status{namespace="gateway", name="wildcard", condition="False"}'
+        values: '1x20'
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="gateway", name="wildcard"}'
+        values: '864000x130' # expires at t=10 days; samples cover the 2h eval
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="gateway", name="other"}'
+        values: '432000x130' # expires at t=5 days
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: CertificateNotReady
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: gateway, name: wildcard, condition: "False"}
+            exp_annotations:
+              summary: "Certificate gateway/wildcard is not Ready"
+              description: "cert-manager could not issue or renew it for 15 minutes: kubectl -n gateway describe certificate wildcard."
+      - eval_time: 2h
+        alertname: CertificateExpiringSoon
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: gateway, name: wildcard}
+            exp_annotations:
+              summary: "Certificate gateway/wildcard expires in less than 21 days"
+              description: "Renewal should have happened at 30 days; check cert-manager and the Cloudflare token."
+      - eval_time: 2h
+        alertname: CertificateExpiryCritical
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: gateway, name: other}
+            exp_annotations:
+              summary: "Certificate gateway/other expires in less than 7 days"
+              description: "Renewal is failing; HTTPS breaks at expiry. kubectl -n gateway describe certificate other."
+  - name: External Secrets
+    interval: 1m
+    input_series:
+      - series: 'externalsecret_status_condition{namespace="monitoring", name="grafana-admin-password", condition="Ready", status="False"}'
+        values: '1x20'
+      - series: 'externalsecret_sync_calls_error{namespace="demo", name="backend"}'
+        values: '0+1x70'
+      - series: 'clustersecretstore_status_condition{name="apps", condition="Ready", status="False"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: ExternalSecretNotReady
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: monitoring, name: grafana-admin-password, condition: Ready, status: "False"}
+            exp_annotations:
+              summary: "ExternalSecret monitoring/grafana-admin-password is not Ready"
+              description: "The Secret is stale or missing. A failing ExternalSecret retries and burns the shared 1Password quota: fix or delete it."
+      - eval_time: 65m
+        alertname: ExternalSecretSyncErrors
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: demo, name: backend}
+            exp_annotations:
+              summary: "ExternalSecret demo/backend fails to sync"
+              description: "60 sync errors in the last hour (rate limit, missing item or field?). Its events say why."
+      - eval_time: 11m
+        alertname: ClusterSecretStoreNotReady
+        exp_alerts:
+          - exp_labels: {severity: critical, name: apps, condition: Ready, status: "False"}
+            exp_annotations:
+              summary: "ClusterSecretStore apps is not Ready"
+              description: "Every ExternalSecret using it stops refreshing (token revoked or 1Password unreachable?)."
+  - name: Cilium and cloudflared
+    interval: 1m
+    input_series:
+      - series: 'kube_daemonset_status_number_unavailable{namespace="kube-system", daemonset="cilium"}'
+        values: '1x20'
+      - series: 'cilium_endpoint_regenerations_total{outcome="fail", pod="cilium-abc"}'
+        values: '0+1x20'
+      - series: 'cloudflared_tunnel_ha_connections{namespace="cloudflared", pod="cloudflared-x"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: CiliumAgentUnavailable
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: kube-system, daemonset: cilium}
+            exp_annotations:
+              summary: "1 Cilium agent(s) unavailable"
+              description: "Pods on that node lose networking. kubectl -n kube-system get pods -l k8s-app=cilium -o wide."
+      - eval_time: 16m
+        alertname: CiliumEndpointRegenerationFailing
+        exp_alerts:
+          - exp_labels: {severity: warning, pod: cilium-abc}
+            exp_annotations:
+              summary: "Cilium on cilium-abc fails to regenerate endpoints"
+              description: "Policy or datapath updates are not applied; check the agent's logs."
+      - eval_time: 6m
+        alertname: CloudflaredTunnelDown
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: cloudflared}
+            exp_annotations:
+              summary: "The Cloudflare Tunnel has no healthy connection"
+              description: "Public apps are unreachable from the internet."
+  - name: cloudflared gone entirely
+    # Both pods gone: the metric disappears, so sum() alone returns nothing and never alerts.
+    interval: 1m
+    input_series:
+      - series: 'up{job="kubelet"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: CloudflaredTunnelDown
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: cloudflared}
+            exp_annotations:
+              summary: "The Cloudflare Tunnel has no healthy connection"
+              description: "Public apps are unreachable from the internet."
+  - name: Storage
+    interval: 1m
+    input_series:
+      - series: 'kubelet_volume_stats_used_bytes{namespace="demo", persistentvolumeclaim="demo-data"}'
+        values: '90x20'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="demo", persistentvolumeclaim="demo-data"}'
+        values: '100x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: PersistentVolumeUsageHigh
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: demo, persistentvolumeclaim: demo-data}
+            exp_annotations:
+              summary: "PVC demo/demo-data is 90% full"
+              description: "Expand it (proxmox-lvm allows expansion) or free space."
+  - name: Quiet when healthy
+    interval: 1m
+    input_series:
+      - series: 'argocd_app_info{namespace="argocd", name="ok", sync_status="Synced", health_status="Healthy"}'
+        values: '1x20'
+      - series: 'cloudflared_tunnel_ha_connections{namespace="cloudflared", pod="cloudflared-x"}'
+        values: '4x20'
+    alert_rule_test:
+      - {eval_time: 16m, alertname: ArgoCDAppOutOfSync, exp_alerts: []}
+      - {eval_time: 16m, alertname: ArgoCDAppUnhealthy, exp_alerts: []}
+      - {eval_time: 16m, alertname: CloudflaredTunnelDown, exp_alerts: []}

@@ -1,0 +1,16 @@
+extends: default
+ignore: |
+  *.sops.yaml
+rules:
+  document-start: disable
+  line-length:
+    max: 140
+    level: warning
+  truthy:
+    allowed-values: ["true", "false", "on"]
+  comments:
+    min-spaces-from-content: 1
+  # Each file consistent with itself: manifests indent sequences, kustomization.yaml files are
+  # written by kustomize edit, which doesn't.
+  indentation:
+    indent-sequences: consistent

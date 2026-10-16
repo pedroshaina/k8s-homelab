@@ -1,0 +1,30 @@
+# ClusterIssuers and the wildcard Certificate. Wave 1: after cert-manager's
+# CRDs (wave 0), in the same wave as the Gateway (cilium-config) that uses the Certificate's
+# Secret and creates the gateway namespace — retry covers that race on a rebuild.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: platform
+  source:
+    repoURL: git@github.com:your-github-user/platform-gitops.git
+    targetRevision: main
+    path: components/cert-manager-config
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - SkipDryRunOnMissingResource=true # cert-manager CRDs may not exist yet (rebuild)
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

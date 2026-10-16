@@ -1,0 +1,7 @@
+# Alertmanager's global routing config, rendered with the team onboarding
+# file by apps/alert-routing.yaml.
+apiVersion: v2
+name: alert-routing
+description: Alertmanager's global routing config and webhook Secrets, from the onboarding file
+type: application
+version: 0.1.0

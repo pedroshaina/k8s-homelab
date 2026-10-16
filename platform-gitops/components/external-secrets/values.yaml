@@ -1,0 +1,12 @@
+# External Secrets Operator Helm values. Chart defaults already run every pod
+# non-root, read-only, all capabilities dropped (Pod Security "restricted"). The CRDs come from the
+# chart; the stores are in components/external-secrets-config.
+installCRDs: true
+# ServiceMonitors and the upstream dashboard.
+serviceMonitor:
+  enabled: true
+  honorLabels: true # keep each metric's namespace (the ExternalSecret's), not the target's
+grafanaDashboard:
+  enabled: true
+  annotations:
+    grafana_folder: Platform

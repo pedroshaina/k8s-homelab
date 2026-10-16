@@ -1,0 +1,14 @@
+# L2 announcements (replaces MetalLB L2 mode): one node answers ARP for each LoadBalancer IP,
+# elected through a Kubernetes Lease. All nodes are eligible (all are control planes — do not
+# copy the upstream example that excludes control-plane nodes).
+apiVersion: cilium.io/v2alpha1
+kind: CiliumL2AnnouncementPolicy
+metadata:
+  name: default
+spec:
+  interfaces:
+    - ^eth0$
+  # Never announce spec.externalIPs: they bypass the LB IPAM pools, so any Service could claim
+  # the API VIP (.220), the Gateway (.230) or even the router over ARP.
+  externalIPs: false
+  loadBalancerIPs: true

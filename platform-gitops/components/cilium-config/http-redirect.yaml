@@ -1,0 +1,18 @@
+# Every plain-HTTP request on the shared Gateway is redirected to HTTPS (301). The http listener
+# admits routes only from this namespace, so this is the only route it serves.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: http-to-https
+  namespace: gateway
+spec:
+  parentRefs:
+    - name: shared
+      namespace: gateway
+      sectionName: http
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
