@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Runs OpenTofu in one infra module with credentials from infra/secrets.sops.yaml injected as
+# environment variables. Decrypted values exist only in the tofu process environment, never on disk.
+#   infra/tf <module> <tofu args>   e.g. infra/tf dns plan, infra/tf talos-cluster apply
+#   infra/tf talos-cluster configs  write ~/.kube/config-homelab and ~/.talos/config from outputs
+set -euo pipefail
+infra="$(cd "$(dirname "$0")" && pwd)"
+module="${1:-}"
+if [[ -z "$module" || ! -f "$infra/$module/versions.tf" ]]; then
+  modules="$(cd "$infra" && for d in */; do [[ -f "$d/versions.tf" ]] && printf '%s ' "${d%/}"; done)"
+  echo "usage: $0 <module> <tofu args>   (modules: $modules)" >&2
+  exit 2
+fi
+shift
+cd "$infra/$module"
+secrets=../secrets.sops.yaml
+
+if [[ "${1:-}" == "configs" ]]; then
+  [[ "$module" == talos-cluster ]] || { echo "configs only exists for talos-cluster" >&2; exit 2; }
+  mkdir -p "$HOME/.kube" "$HOME/.talos"
+  umask 077
+  sops exec-env "$secrets" 'tofu output -raw kubeconfig' > "$HOME/.kube/config-homelab"
+  sops exec-env "$secrets" 'tofu output -raw talosconfig' > "$HOME/.talos/config"
+  echo "Wrote ~/.kube/config-homelab and ~/.talos/config"
+  echo "Use: export KUBECONFIG=~/.kube/config-homelab"
+  exit 0
+fi
+
+# Per-module credential mapping: renames a SOPS key to the name a module's provider or OpenTofu
+# reads, for that module only. (sops exec-env still exports every key of the file to the process;
+# only these variable names are per module.) talos-cluster: the GHCR pull token
+# GITHUB_GHCR_IMAGE_PULL_TOKEN as TF_VAR_ghcr_pull_token.
+prefix=""
+[[ "$module" == talos-cluster ]] && prefix='TF_VAR_ghcr_pull_token="${GITHUB_GHCR_IMAGE_PULL_TOKEN:-}" '
+
+exec sops exec-env "$secrets" "${prefix}tofu $(printf '%q ' "$@")"
