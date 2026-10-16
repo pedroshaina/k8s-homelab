@@ -1,0 +1,43 @@
+# gitleaks: all default rules, plus rules for this repo's own credential formats,
+# and an allowlist for SOPS ciphertext.
+# ENC[AES256_GCM,...] values are encrypted and safe to commit.
+title = "apps-gitops gitleaks config"
+
+[extend]
+useDefault = true
+
+# Proxmox VE API token: user@realm!tokenid=<uuid>
+[[rules]]
+id = "proxmox-api-token"
+description = "Proxmox VE API token"
+regex = '''[\w.-]+@(?:pve|pam|pbs)![\w.-]+=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'''
+keywords = ["@pve!", "@pam!", "@pbs!"]
+
+# Proxmox API token secret on its own line (e.g. the Proxmox CSI plugin config). The default
+# generic-api-key rule usually catches it too, but only via an entropy heuristic.
+[[rules]]
+id = "proxmox-token-secret"
+description = "Proxmox API token secret (UUID) in a config file"
+regex = '''(?i)token_secret["']?\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'''
+secretGroup = 1
+keywords = ["token_secret"]
+
+# Plaintext value assigned to one of the secrets this repo keeps in secrets.sops.yaml,
+# in YAML (KEY: value), shell/env (KEY=value, export KEY="value") or similar forms.
+[[rules]]
+id = "homelab-known-secret"
+description = "Plaintext value for a homelab secret variable"
+regex = '''(?i)(?:PROXMOX_VE_API_TOKEN|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|TF_VAR_state_passphrase)["']?\s*[:=]\s*["']?([^\s"'#]{8,})'''
+secretGroup = 1
+entropy = 3.0 # skips dummies such as 0000000000000000
+keywords = ["proxmox_ve_api_token", "aws_access_key_id", "aws_secret_access_key", "tf_var_state_passphrase"]
+
+  # Documentation placeholders (tofu@pve!homelab=..., <value>) are not secrets.
+  [[rules.allowlists]]
+  regexTarget = "secret"
+  regexes = ['''\.\.\.''', '''[<>]''']
+
+[[allowlists]]
+description = "SOPS-encrypted values"
+regexTarget = "line"
+regexes = ['''ENC\[AES256_GCM,data:''']

@@ -1,0 +1,76 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Standard tools only: pre-commit (format, YAML, secrets, kubeconform), Kustomize
+# renders, promtool unit tests for the apps' alert rules, gitleaks over the full history. The conventions that no
+# tool checks are in CLUSTER-POLICIES.md.
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # gitleaks scans history
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install tools (pinned, checksum-verified)
+        run: |
+          pip install pre-commit==4.6.2
+          cd /tmp
+          curl -fsSLO https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          tar xzf gitleaks_8.30.1_linux_x64.tar.gz gitleaks
+          curl -fsSLO https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
+          echo "9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883  kubeconform-linux-amd64.tar.gz" | sha256sum -c -
+          tar xzf kubeconform-linux-amd64.tar.gz kubeconform
+          curl -fsSLO https://github.com/prometheus/prometheus/releases/download/v3.15.0/prometheus-3.15.0.linux-amd64.tar.gz
+          echo "2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0  prometheus-3.15.0.linux-amd64.tar.gz" | sha256sum -c -
+          tar xzf prometheus-3.15.0.linux-amd64.tar.gz --strip-components=1 prometheus-3.15.0.linux-amd64/promtool
+          curl -fsSLO https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.1/kustomize_v5.8.1_linux_amd64.tar.gz
+          echo "029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d  kustomize_v5.8.1_linux_amd64.tar.gz" | sha256sum -c -
+          tar xzf kustomize_v5.8.1_linux_amd64.tar.gz kustomize
+          sudo install -m 0755 gitleaks kubeconform promtool kustomize /usr/local/bin/
+
+      - name: Pre-commit (all files)
+        run: pre-commit run --all-files --show-diff-on-failure
+
+      # Argo CD renders a folder with a kustomization.yaml through Kustomize (v5.8.1, the version
+      # Argo CD 3.5.3 bundles): a missing file or a broken kustomization fails here, not in the sync.
+      - name: Render Kustomize apps
+        run: |
+          status=0
+          for k in apps/*/kustomization.yaml; do
+            [ -e "$k" ] || continue
+            kustomize build "$(dirname "$k")" > /dev/null || { echo "::error file=$k::kustomize build failed"; status=1; }
+          done
+          exit $status
+
+      # promtool reads plain rule files: extract each app's PrometheusRule spec next to its test
+      # (tests/rules/<app>/<file>.test.yaml). Fails if a rule file has no test or a test has no rule file.
+      - name: Alert rule unit tests (promtool)
+        run: |
+          w="$(mktemp -d)"; status=0
+          for f in apps/*/*.yaml; do
+            [ "$(yq ea -N 'select(.kind != null) | .kind' "$f" | sort -u)" = PrometheusRule ] || continue
+            app="$(basename "$(dirname "$f")")"; n="$(basename "$f" .yaml)"; t="tests/rules/$app/$n.test.yaml"
+            [ -f "$t" ] || { echo "::error::$f has no test $t"; status=1; continue; }
+            mkdir -p "$w/$app"; yq '.spec' "$f" > "$w/$app/$n.yaml"; cp "$t" "$w/$app/"
+            (cd "$w/$app" && promtool check rules "$n.yaml" && promtool test rules "$n.test.yaml") || status=1
+          done
+          for t in tests/rules/*/*.test.yaml; do
+            [ -e "$t" ] || continue # no tests yet: the glob stays literal
+            [ -f "apps/$(basename "$(dirname "$t")")/$(basename "$t" .test.yaml).yaml" ] || { echo "::error::$t has no rule file"; status=1; }
+          done
+          exit $status
+
+      - name: gitleaks (full history)
+        run: gitleaks git --config .gitleaks.toml --no-banner .
