@@ -1,0 +1,21 @@
+# OpenTofu
+.terraform/
+*.tfplan
+crash.log
+*.tfstate
+*.tfstate.*
+
+# Cluster credentials (written outside the repo, ignored defensively)
+kubeconfig
+*kubeconfig*
+talosconfig
+
+# Decrypted secrets
+*.dec.yaml
+*.decrypted.*
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+.vscode/
