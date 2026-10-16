@@ -57,8 +57,13 @@ cloudflared tunnel list                       # homelab, no connections yet
 
 ## Alternatives
 
-- **No public apps:** skip the tunnel and leave every app `public: false` (chapter 09); remove
-  `apps/public-apps.yaml` and `apps/external-dns-public.yaml` from `platform-gitops`.
+- **No public apps:** skip the tunnel and the `external-dns-public` token. In `platform-gitops`:
+  remove `apps/public-apps.yaml` and `apps/external-dns-public.yaml`, set podinfo to
+  `public: false` in `components/teams/values.yaml`, and remove the `cloudflared` rule group from
+  `components/kube-prometheus-stack/rules/platform.yaml` together with its tests in
+  `platform.test.yaml` (otherwise `CloudflaredTunnelDown` fires forever). In chapter 06, skip the
+  items `cloudflared-credentials` and `external-dns-public-cloudflare-api-token`; in chapter 08,
+  skip the public checks of item 4.
 - **Another DNS provider:** cert-manager, external-dns and Proxmox ACME support many (Route 53,
   Google Cloud DNS, …); each needs its own credentials format.
 

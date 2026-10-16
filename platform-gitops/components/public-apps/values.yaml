@@ -1,4 +1,4 @@
-# Locally-managed Cloudflare tunnel: its ID (guide/06-cloudflare.md); credentials come from 1Password.
+# Locally-managed Cloudflare tunnel: its ID (guide/02-cloudflare.md); credentials come from 1Password.
 tunnelId: 00000000-0000-0000-0000-000000000000
 zone: example.com
 # The shared Gateway's Service; cloudflared verifies the wildcard certificate for each hostname.

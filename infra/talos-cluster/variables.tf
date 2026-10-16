@@ -116,6 +116,6 @@ variable "ghcr_pull_token" {
   sensitive = true
   validation {
     condition     = length(var.ghcr_pull_token) > 0
-    error_message = "Add GITHUB_GHCR_IMAGE_PULL_TOKEN to infra/secrets.sops.yaml (guide/10-releases.md)."
+    error_message = "Add GITHUB_GHCR_IMAGE_PULL_TOKEN to infra/secrets.sops.yaml (guide/05-cluster.md)."
   }
 }

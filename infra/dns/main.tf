@@ -11,7 +11,7 @@ resource "proxmox_download_file" "debian13" {
   checksum_algorithm = "sha512"
 }
 
-# dns01: Technitium DNS Server, installed and configured by hand (guide/03-dns-server.md).
+# dns01: Technitium DNS Server, installed and configured by hand (guide/04-dns-server.md).
 # Unprivileged, no nesting; outside the cluster so DNS survives cluster rebuilds.
 resource "proxmox_virtual_environment_container" "dns01" {
   node_name     = var.proxmox_node

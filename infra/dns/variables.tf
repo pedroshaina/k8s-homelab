@@ -27,6 +27,6 @@ variable "dns01" {
 }
 
 variable "ssh_public_key" {
-  description = "Public key allowed to SSH in as root (guide/03-dns-server.md)."
+  description = "Public key allowed to SSH in as root (guide/04-dns-server.md)."
   type        = string
 }

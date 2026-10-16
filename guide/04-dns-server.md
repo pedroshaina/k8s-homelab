@@ -88,7 +88,8 @@ Remove the temporary `pve01.example.com` line from `/etc/hosts` (chapter 03).
 dig +short pve01.example.com @192.168.1.215       # 192.168.1.214
 dig AXFR example.com @192.168.1.215               # Transfer failed: unsigned transfers refused
 printf 'server 192.168.1.215\nzone example.com\nupdate add x.example.com 60 A 192.0.2.1\nsend\n' | nsupdate   # REFUSED
-dig +short pve01.example.com                      # 192.168.1.214, through the workstation resolver
+dscacheutil -q host -a name pve01.example.com     # macOS: ip_address: 192.168.1.214 (dig ignores /etc/resolver)
+# Linux: resolvectl query pve01.example.com       # 192.168.1.214
 infra/tf dns plan -detailed-exitcode; echo $?     # 0: no drift
 ```
 
