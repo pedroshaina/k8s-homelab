@@ -1,0 +1,9 @@
+# Locally-managed Cloudflare tunnel: its ID (guide/06-cloudflare.md); credentials come from 1Password.
+tunnelId: 00000000-0000-0000-0000-000000000000
+zone: example.com
+# The shared Gateway's Service; cloudflared verifies the wildcard certificate for each hostname.
+gatewayService: https://cilium-gateway-shared.gateway.svc.cluster.local:443
+image: cloudflare/cloudflared:2026.9.3@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
+replicas: 2
+# Merged from components/teams/values.yaml by the Application.
+teams: []

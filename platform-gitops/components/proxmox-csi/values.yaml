@@ -1,0 +1,5 @@
+# proxmox-csi-plugin Helm values. The Proxmox API config (URL, token, region) is Secret config,
+# synced from 1Password by ESO (external-secret.yaml).
+existingConfigSecret: config
+existingConfigSecretKey: config.yaml
+storageClass: [] # defined in storageclass.yaml

@@ -1,0 +1,125 @@
+{{- include "teams.validate" . }}
+{{- range $team := .Values.teams }}
+---
+# Team {{ $team.name }}: only its repo, only its apps' namespaces, nothing cluster-scoped. The kind
+# allowlist must match the apps repo's CLUSTER-POLICIES.md (monitors and rules: Prometheus
+# forces them to the team's namespace).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {{ $team.name | quote }}
+  namespace: argocd
+spec:
+  description: {{ printf "Team %s, from %s" $team.name $team.repo | quote }}
+  sourceRepos:
+    - {{ $team.repo | quote }}
+  destinations:
+    {{- range $team.apps }}
+    - server: https://kubernetes.default.svc
+      namespace: {{ .name | quote }}
+    {{- end }}
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: "", kind: ConfigMap}
+    - {group: "", kind: PersistentVolumeClaim}
+    - {group: "", kind: Service}
+    - {group: "", kind: ServiceAccount}
+    - {group: apps, kind: Deployment}
+    - {group: apps, kind: StatefulSet}
+    - {group: autoscaling, kind: HorizontalPodAutoscaler}
+    - {group: batch, kind: CronJob}
+    - {group: batch, kind: Job}
+    - {group: external-secrets.io, kind: ExternalSecret}
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute}
+    - {group: monitoring.coreos.com, kind: PodMonitor}
+    - {group: monitoring.coreos.com, kind: PrometheusRule}
+    - {group: monitoring.coreos.com, kind: ServiceMonitor}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+    - {group: policy, kind: PodDisruptionBudget}
+---
+# The team's 1Password token (service account k8s-{{ $team.name }}-eso, read-only on
+# vault k8s-{{ $team.name }}), delivered from the platform vault.
+# It stays in external-secrets: the team uses its store but can't read the credential.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ printf "%s-svc-acc-token" $team.name | quote }}
+  namespace: external-secrets
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: platform
+  target:
+    name: {{ printf "%s-svc-acc-token" $team.name | quote }}
+    creationPolicy: Owner
+  data:
+    - secretKey: secretValue
+      remoteRef:
+        key: {{ printf "%s-svc-acc-token/secretValue" $team.name | quote }}
+---
+# Only the team's namespaces (labelled by this chart) may use the team's store.
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: {{ $team.name | quote }}
+spec:
+  provider:
+    onepasswordSDK:
+      vault: {{ printf "k8s-%s" $team.name | quote }}
+      auth:
+        serviceAccountSecretRef:
+          name: {{ printf "%s-svc-acc-token" $team.name | quote }}
+          namespace: external-secrets
+          key: secretValue
+      cache:
+        ttl: 5m
+        maxSize: 100
+  conditions:
+    - namespaceSelector:
+        matchLabels:
+          example.com/team: {{ $team.name | quote }}
+{{- range $app := $team.apps }}
+---
+# Created by the platform, never by the team. Prune=false: offboarding never deletes the
+# namespace (and its volumes). The team label admits the namespace to the Gateway's http-apps
+# listener.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $app.name | quote }}
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    example.com/team: {{ $team.name | quote }}
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $app.name | quote }}
+  namespace: argocd
+spec:
+  project: {{ $team.name | quote }}
+  source:
+    repoURL: {{ $team.repo | quote }}
+    targetRevision: main
+    path: {{ printf "apps/%s" $app.name | quote }}
+    # No source type: Argo CD detects it — Kustomize when the folder has a kustomization.yaml
+    # (team-owned image pins), plain top-level YAML otherwise. Conventions in
+    # the apps repo's CLUSTER-POLICIES.md (1).
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $app.name | quote }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry: # the namespace and project come from the same sync; wait for them
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+{{- end }}
+{{- end }}

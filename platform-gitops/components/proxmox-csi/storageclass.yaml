@@ -1,0 +1,15 @@
+# Default StorageClass: each PVC becomes a Proxmox disk on local-lvm (thin LVM, NVMe).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: proxmox-lvm
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: csi.proxmox.sinextra.dev
+parameters:
+  storage: local-lvm
+  csi.storage.k8s.io/fstype: ext4
+  ssd: "true"
+reclaimPolicy: Delete                   # apps that must keep data opt into Retain
+volumeBindingMode: WaitForFirstConsumer # create the disk once the pod's node is known
+allowVolumeExpansion: true

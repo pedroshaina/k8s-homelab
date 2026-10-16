@@ -1,0 +1,25 @@
+# external-dns for the public Cloudflare zone: DNSEndpoint objects only, all
+# proxied through Cloudflare (a CNAME to <tunnel>.cfargotunnel.com only works proxied).
+provider:
+  name: cloudflare
+sources: [crd]
+domainFilters: [example.com]
+policy: sync
+registry: txt
+txtOwnerId: homelab-public
+txtPrefix: "extdns-"
+interval: 1m
+extraArgs:
+  - --crd-source-apiversion=externaldns.k8s.io/v1alpha1
+  - --crd-source-kind=DNSEndpoint
+  - --cloudflare-proxied
+env:
+  # Secret synced from 1Password by ESO (external-secret.yaml): Zone → DNS → Edit on the zone.
+  - name: CF_API_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: cloudflare-api-token
+        key: api-token
+# Metrics
+serviceMonitor:
+  enabled: true

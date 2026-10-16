@@ -1,0 +1,17 @@
+{{- /* Public records, published to Cloudflare by external-dns-public (which reads only these). */ -}}
+{{- range splitList "\n" (include "public-apps.hosts" .) }}
+{{- if . }}
+---
+apiVersion: externaldns.k8s.io/v1alpha1
+kind: DNSEndpoint
+metadata:
+  name: {{ . | replace "." "-" }}
+  namespace: cloudflared
+spec:
+  endpoints:
+    - dnsName: {{ . }}
+      recordType: CNAME
+      recordTTL: 300
+      targets: [{{ $.Values.tunnelId }}.cfargotunnel.com]
+{{- end }}
+{{- end }}

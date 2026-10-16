@@ -1,0 +1,85 @@
+# One entry point for all HTTP services; HTTPRoutes pick a hostname. Hostname fencing:
+# a listener carries one hostname and requests match the most specific listener, so
+# each platform hostname has its own listener admitting only its namespace, and teams get the
+# wildcard. A team route claiming a platform hostname attaches to http-apps but never receives
+# that host's traffic. TLS terminates here with the *.example.com wildcard (cert-manager);
+# plain HTTP only redirects to HTTPS (http-redirect.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gateway
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: shared
+  namespace: gateway
+spec:
+  gatewayClassName: cilium
+  addresses:
+    - type: IPAddress
+      value: 192.168.1.230 # from LB IPAM pool "gateway"
+  listeners:
+    # Plain HTTP: admits only the redirect route in this namespace (http-redirect.yaml).
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https-argocd
+      protocol: HTTPS
+      port: 443
+      hostname: argocd.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
+    - name: https-hubble
+      protocol: HTTPS
+      port: 443
+      hostname: hubble.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+    - name: https-grafana
+      protocol: HTTPS
+      port: 443
+      hostname: grafana.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+    - name: https-apps
+      protocol: HTTPS
+      port: 443
+      hostname: "*.example.com"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: # any team namespace; platform namespaces never carry the label
+            matchExpressions:
+              - {key: example.com/team, operator: Exists}

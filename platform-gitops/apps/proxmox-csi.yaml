@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: proxmox-csi
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: platform
+  sources:
+    - repoURL: ghcr.io/sergelogvinov/charts
+      chart: proxmox-csi-plugin
+      targetRevision: 0.5.12
+      helm:
+        releaseName: proxmox-csi-plugin
+        valueFiles:
+          - $values/components/proxmox-csi/values.yaml
+    - repoURL: git@github.com:your-github-user/platform-gitops.git
+      targetRevision: main
+      ref: values
+    - repoURL: git@github.com:your-github-user/platform-gitops.git
+      targetRevision: main
+      path: components/proxmox-csi
+      directory:
+        include: '{namespace.yaml,storageclass.yaml,external-secret.yaml}'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: csi-proxmox
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

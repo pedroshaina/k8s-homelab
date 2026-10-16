@@ -1,0 +1,72 @@
+# Cilium feature layer, applied by Argo CD on top of infra/talos-cluster/cilium-values.yaml.
+# Talos never sees this file. Features are added one per PR.
+
+# Restart agents/operator when their config changes, so a merged feature takes effect.
+rollOutCiliumPods: true
+operator:
+  rollOutPods: true
+  # Single node: the chart's 2 replicas use required anti-affinity, so the
+  # second would stay Pending. With 1 replica the chart itself rolls it with maxUnavailable 100%
+  # (replace in place; a surge pod couldn't schedule beside the old one).
+  replicas: 1
+  # Operator metrics, ServiceMonitor and dashboard.
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+  dashboards:
+    enabled: true
+    annotations:
+      grafana_folder: Platform
+# ...one node at a time (chart default: 2 of our 3 agents at once).
+updateStrategy:
+  rollingUpdate:
+    maxUnavailable: 1
+
+# PR 2 — L2 announcements. Each announced Service holds a Lease renewed through the API, so the
+# default client rate limit (10 qps / 20 burst) is raised.
+l2announcements:
+  enabled: true
+externalIPs:
+  enabled: true
+k8sClientRateLimit:
+  qps: 50
+  burst: 100
+
+# PR 3 — Gateway API (replaces an ingress controller). CRDs come from the gateway-api-crds app.
+gatewayAPI:
+  enabled: true
+
+# PR 3 — Hubble network observability. cronJob TLS: certificates are generated in-cluster,
+# not at render time (the default "helm" method renders new certs every time → endless drift).
+hubble:
+  enabled: true
+  # A few low-cardinality metric sets, with ServiceMonitor and dashboards.
+  metrics:
+    enabled: [dns, drop, tcp, flow, icmp]
+    serviceMonitor:
+      enabled: true
+    dashboards:
+      enabled: true
+      annotations:
+        grafana_folder: Platform
+  relay:
+    enabled: true
+  ui:
+    enabled: true
+  tls:
+    auto:
+      method: cronJob
+
+# Agent metrics with a ServiceMonitor, and the agent dashboard.
+# trustCRDsExist: render monitors without querying the cluster (the preview diff in
+# guide/11-day-2.md); the CRDs are wave -2.
+prometheus:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    trustCRDsExist: true
+dashboards:
+  enabled: true
+  annotations:
+    grafana_folder: Platform

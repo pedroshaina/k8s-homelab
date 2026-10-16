@@ -1,0 +1,7 @@
+# Team onboarding: per team an AppProject; per onboarded app a Namespace and
+# an Application in the team's project. Rendered by apps/teams.yaml from values.yaml.
+apiVersion: v2
+name: teams
+description: Teams that deploy onto the platform, their namespaces and Applications
+type: application
+version: 0.1.0

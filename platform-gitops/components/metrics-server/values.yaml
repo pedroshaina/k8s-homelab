@@ -1,0 +1,7 @@
+# metrics-server Helm values: the resource metrics API (kubectl top, HPAs).
+# Kubelets serve CA-signed certificates (Talos rotate-server-certificates, approved by
+# kubelet-serving-cert-approver), so the chart's default args verify kubelet TLS: never add
+# --kubelet-insecure-tls.
+resources:
+  requests: {cpu: 20m, memory: 64Mi}
+  limits: {memory: 128Mi}

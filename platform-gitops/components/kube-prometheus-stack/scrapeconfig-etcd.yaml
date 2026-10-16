@@ -1,0 +1,14 @@
+# etcd metrics. etcd isn't a pod on Talos; it serves plain-HTTP metrics on each
+# node's :2381 (infra/talos-cluster). The chart's way — a headless Service plus a manual Endpoints
+# object — never lands: Argo CD excludes Endpoints/EndpointSlice by default. The chart's etcd rules
+# and dashboard match job=~".*etcd.*", so job kube-etcd keeps them working. The targets follow the
+# nodes in k8s-homelab infra/talos-cluster/terraform.tfvars (one node).
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: kube-etcd
+  namespace: monitoring
+spec:
+  jobName: kube-etcd
+  staticConfigs:
+    - targets: [192.168.1.221:2381]
