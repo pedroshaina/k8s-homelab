@@ -3,6 +3,9 @@
 **What you'll have at the end:** the hardware, the accounts and the list of values you'll change,
 so the following chapters can run without stopping.
 
+Throughout the guide, `example.com` stands for your domain, `alice` for your GitHub user and
+`192.168.1.x` for the addresses of your network plan: read them as yours.
+
 ## Hardware
 
 One machine runs everything. What this blueprint was built on, and the minimum it needs:
