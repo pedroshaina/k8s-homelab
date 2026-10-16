@@ -1,0 +1,53 @@
+# podinfo (https://github.com/stefanprodan/podinfo), a tiny web app used as the example: HTTP on
+# :9898 and Prometheus metrics on :9797. A third-party image, so it is pinned here, tag@digest.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: podinfo}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: podinfo}
+    spec:
+      securityContext: # Pod Security "restricted"
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 101
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.15.0@sha256:ec73780a8425f59ea49f5bc8cdff0d598805a224fbaa1f86c67a244f250fa9da
+          command: [./podinfo, --port=9898, --port-metrics=9797, --level=info]
+          ports:
+            - {name: http, containerPort: 9898}
+            - {name: metrics, containerPort: 9797}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - {name: data, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: podinfo
+  labels: {app.kubernetes.io/name: podinfo}
+spec:
+  selector: {app.kubernetes.io/name: podinfo}
+  ports:
+    - {name: http, port: 9898, targetPort: http}
+    - {name: metrics, port: 9797, targetPort: metrics}

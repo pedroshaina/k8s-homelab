@@ -1,0 +1,13 @@
+# Argo CD needs OCI Helm registries declared as repositories (public: no credentials).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: repo-ghcr-sergelogvinov
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  type: helm
+  name: sergelogvinov
+  url: ghcr.io/sergelogvinov/charts
+  enableOCI: "true"

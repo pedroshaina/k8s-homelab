@@ -1,0 +1,68 @@
+# gitleaks: all default rules, plus rules for this repo's own credential formats,
+# and an allowlist for SOPS ciphertext.
+# ENC[AES256_GCM,...] values are encrypted and safe to commit.
+title = "platform-gitops gitleaks config"
+
+[extend]
+useDefault = true
+
+# Proxmox VE API token: user@realm!tokenid=<uuid>
+[[rules]]
+id = "proxmox-api-token"
+description = "Proxmox VE API token"
+regex = '''[\w.-]+@(?:pve|pam|pbs)![\w.-]+=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'''
+keywords = ["@pve!", "@pam!", "@pbs!"]
+
+# Proxmox API token secret on its own line (e.g. the Proxmox CSI plugin config). The default
+# generic-api-key rule usually catches it too, but only via an entropy heuristic.
+[[rules]]
+id = "proxmox-token-secret"
+description = "Proxmox API token secret (UUID) in a config file"
+regex = '''(?i)token_secret["']?\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'''
+secretGroup = 1
+keywords = ["token_secret"]
+
+# Plaintext value assigned to one of the secrets this repo keeps in secrets.sops.yaml,
+# in YAML (KEY: value), shell/env (KEY=value, export KEY="value") or similar forms.
+[[rules]]
+id = "homelab-known-secret"
+description = "Plaintext value for a homelab secret variable"
+regex = '''(?i)(?:PROXMOX_VE_API_TOKEN|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|TF_VAR_state_passphrase|TECHNITIUM_ADMIN_PASSWORD|TSIG_EXTERNAL_DNS_SECRET|PROXMOX_ACME_CF_TOKEN)["']?\s*[:=]\s*["']?([^\s"'#]{8,})'''
+secretGroup = 1
+entropy = 3.0 # skips dummies such as 0000000000000000
+keywords = ["proxmox_ve_api_token", "aws_access_key_id", "aws_secret_access_key", "tf_var_state_passphrase", "technitium_admin_password", "tsig_external_dns_secret", "proxmox_acme_cf_token"]
+
+  # Documentation placeholders (tofu@pve!homelab=..., <value>) are not secrets.
+  [[rules.allowlists]]
+  regexTarget = "secret"
+  regexes = ['''\.\.\.''', '''[<>]''']
+
+# Cloudflare API token under the api-token key of a Secret (cert-manager, external-dns-public):
+# deterministic, so detection doesn't depend on generic-api-key's entropy heuristic.
+[[rules]]
+id = "cloudflare-api-token"
+description = "Cloudflare API token in a Secret (api-token key)"
+regex = '''(?i)api-token["']?\s*:\s*["']?([A-Za-z0-9_-]{40})\b'''
+secretGroup = 1
+keywords = ["api-token"]
+
+# Cloudflare Tunnel credentials JSON (cloudflared tunnel create): any TunnelSecret value.
+[[rules]]
+id = "cloudflare-tunnel-secret"
+description = "Cloudflare Tunnel credentials (TunnelSecret)"
+regex = '''"TunnelSecret"\s*:\s*"([^"]{16,})"'''
+secretGroup = 1
+keywords = ["tunnelsecret"]
+
+# 1Password service-account token (secret zero for External Secrets Operator):
+# "ops_" + base64 of a JSON document ({"... → eyJ...).
+[[rules]]
+id = "1password-service-account-token"
+description = "1Password service-account token"
+regex = '''\bops_eyJ[A-Za-z0-9+/_-]{100,}'''
+keywords = ["ops_eyj"]
+
+[[allowlists]]
+description = "SOPS-encrypted values"
+regexTarget = "line"
+regexes = ['''ENC\[AES256_GCM,data:''']

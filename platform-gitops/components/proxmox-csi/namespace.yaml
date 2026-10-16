@@ -1,0 +1,8 @@
+# The node plugin mounts block devices on the host, which the default "baseline" Pod Security
+# level forbids.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: csi-proxmox
+  labels:
+    pod-security.kubernetes.io/enforce: privileged

@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Standard tools only: pre-commit (format, YAML, secrets, SOPS, kubeconform),
+# promtool unit tests for the platform alert rules, gitleaks over the full history.
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # gitleaks scans history
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install tools (pinned, checksum-verified)
+        run: |
+          pip install pre-commit==4.6.2
+          cd /tmp
+          curl -fsSLO https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          tar xzf gitleaks_8.30.1_linux_x64.tar.gz gitleaks
+          curl -fsSLO https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
+          echo "9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883  kubeconform-linux-amd64.tar.gz" | sha256sum -c -
+          tar xzf kubeconform-linux-amd64.tar.gz kubeconform
+          curl -fsSLO https://github.com/prometheus/prometheus/releases/download/v3.15.0/prometheus-3.15.0.linux-amd64.tar.gz
+          echo "2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0  prometheus-3.15.0.linux-amd64.tar.gz" | sha256sum -c -
+          tar xzf prometheus-3.15.0.linux-amd64.tar.gz --strip-components=1 prometheus-3.15.0.linux-amd64/promtool
+          sudo install -m 0755 gitleaks kubeconform promtool /usr/local/bin/
+
+      - name: Pre-commit (all files)
+        run: pre-commit run --all-files --show-diff-on-failure
+
+      # promtool reads plain rule files: extract each PrometheusRule's spec next to its test.
+      # Fails if a rule file has no test or a test has no rule file.
+      - name: Alert rule unit tests (promtool)
+        run: |
+          d=components/kube-prometheus-stack/rules; w="$(mktemp -d)"; status=0
+          for f in "$d"/*.yaml; do
+            case "$f" in
+              *.test.yaml) [ -f "${f%.test.yaml}.yaml" ] || { echo "::error::$f has no rule file"; status=1; } ;;
+              *) [ -f "${f%.yaml}.test.yaml" ] || { echo "::error::$f has no test"; status=1; continue; }
+                 yq '.spec' "$f" > "$w/$(basename "$f")"; cp "${f%.yaml}.test.yaml" "$w/" ;;
+            esac
+          done
+          cd "$w" && for t in *.test.yaml; do promtool check rules "${t%.test.yaml}.yaml" && promtool test rules "$t" || status=1; done
+          exit $status
+
+      - name: gitleaks (full history)
+        run: gitleaks git --config .gitleaks.toml --no-banner .

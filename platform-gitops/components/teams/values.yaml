@@ -1,0 +1,14 @@
+# Onboarding file, reviewed by the platform team. Each team gets an AppProject
+# named after it, limited to its repo and its apps' namespaces. Each app gets namespace <name>
+# and Application <name> deploying apps/<name>/ from the team's repo. To add an app: merge its
+# folder in the team's repo first, then add it here. `public: true` exposes it on the internet
+# through the Cloudflare Tunnel (public-apps chart); default false.
+# `alertsWebhook`: a platform-vault item (field secretValue) holding the team's Discord webhook;
+# alerts from its apps' namespaces go there (alert-routing chart). Without it,
+# they go to the platform channel.
+teams:
+  - name: apps
+    repo: git@github.com:your-github-user/apps-gitops.git
+    alertsWebhook: apps-alerts-discord-webhook-uri
+    apps:
+      - {name: podinfo, public: true}

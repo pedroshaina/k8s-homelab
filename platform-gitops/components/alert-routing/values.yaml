@@ -1,0 +1,5 @@
+# The platform channel's webhook: a platform-vault item (field secretValue) synced into a
+# Secret of the same name in monitoring. Teams' webhooks come from alertsWebhook in the
+# onboarding file (components/teams/values.yaml), merged in by the Application.
+platformWebhook: platform-alerts-discord-webhook-uri
+teams: []

@@ -1,0 +1,29 @@
+# Cilium custom resources (IP pools, L2 policy, shared Gateway). Separate from the chart so they
+# sync after Cilium (wave 1) and its CRDs exist.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cilium-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: platform
+  source:
+    repoURL: git@github.com:your-github-user/platform-gitops.git
+    targetRevision: main
+    path: components/cilium-config
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - SkipDryRunOnMissingResource=true # on a rebuild, CRDs may not exist yet
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

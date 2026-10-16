@@ -1,0 +1,8 @@
+# Public apps: cloudflared and a public DNS record for every app marked
+# `public: true` in the team onboarding file (components/teams/values.yaml). Rendered by
+# apps/public-apps.yaml with that file as an extra values file.
+apiVersion: v2
+name: public-apps
+description: Cloudflare Tunnel and public DNS records for onboarded public apps
+type: application
+version: 0.1.0

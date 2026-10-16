@@ -1,0 +1,129 @@
+# Platform alert rules, unit-tested by platform.test.yaml
+# (promtool, run in CI). Severity: critical = act now (4 h repeat), warning = look today (24 h).
+# Namespace monitoring is excluded from namespace enforcement, so these see every namespace.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: platform
+  namespace: monitoring
+spec:
+  groups:
+    - name: argocd
+      rules:
+        - alert: ArgoCDAppOutOfSync
+          expr: max by (namespace, name) (argocd_app_info{sync_status="OutOfSync"}) == 1
+          for: 15m
+          labels: {severity: warning}
+          annotations:
+            summary: "Argo CD Application {{ $labels.name }} is OutOfSync"
+            description: "{{ $labels.name }} has not matched Git for 15 minutes; check argocd app diff {{ $labels.name }}."
+        - alert: ArgoCDAppUnhealthy
+          expr: max by (namespace, name, health_status) (argocd_app_info{health_status=~"Degraded|Missing|Unknown"}) == 1
+          for: 15m
+          labels: {severity: warning}
+          annotations:
+            summary: "Argo CD Application {{ $labels.name }} is {{ $labels.health_status }}"
+            description: "{{ $labels.name }} has been {{ $labels.health_status }} for 15 minutes; check argocd app get {{ $labels.name }}."
+        - alert: ArgoCDRepoServerRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="argocd", container="argocd-repo-server"}[1h]) > 2
+          labels: {severity: warning}
+          annotations:
+            summary: "argocd-repo-server restarted {{ $value | printf \"%.0f\" }} times in the last hour"
+            description: "Often cluster DNS failing: check CoreDNS and dns01. Apps show Unknown while it restarts."
+    - name: coredns
+      rules:
+        - alert: CoreDNSServfailHigh
+          expr: |
+            label_replace(
+              sum(rate(coredns_dns_responses_total{rcode="SERVFAIL"}[5m])) / sum(rate(coredns_dns_responses_total[5m])) > 0.05,
+              "namespace", "kube-system", "", "")
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: "CoreDNS answers {{ $value | humanizePercentage }} of queries with SERVFAIL"
+            description: "Upstream resolution is failing (dns01, then the router): check that dns01 is up and resolving."
+    - name: cert-manager
+      rules:
+        - alert: CertificateNotReady
+          expr: certmanager_certificate_ready_status{condition="False"} == 1
+          for: 15m
+          labels: {severity: warning}
+          annotations:
+            summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "cert-manager could not issue or renew it for 15 minutes: kubectl -n {{ $labels.namespace }} describe certificate {{ $labels.name }}."
+        - alert: CertificateExpiringSoon
+          expr: |
+            (certmanager_certificate_expiration_timestamp_seconds - time()) < 21 * 86400
+            and (certmanager_certificate_expiration_timestamp_seconds - time()) >= 7 * 86400
+          for: 1h
+          labels: {severity: warning}
+          annotations:
+            summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in less than 21 days"
+            description: "Renewal should have happened at 30 days; check cert-manager and the Cloudflare token."
+        - alert: CertificateExpiryCritical
+          expr: (certmanager_certificate_expiration_timestamp_seconds - time()) < 7 * 86400
+          for: 1h
+          labels: {severity: critical}
+          annotations:
+            summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in less than 7 days"
+            description: "Renewal is failing; HTTPS breaks at expiry. kubectl -n {{ $labels.namespace }} describe certificate {{ $labels.name }}."
+    - name: external-secrets
+      rules:
+        - alert: ExternalSecretNotReady
+          expr: externalsecret_status_condition{condition="Ready", status="False"} == 1
+          for: 15m
+          labels: {severity: warning}
+          annotations:
+            summary: "ExternalSecret {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "The Secret is stale or missing. A failing ExternalSecret retries and burns the shared 1Password quota: fix or delete it."
+        - alert: ExternalSecretSyncErrors
+          expr: sum by (namespace, name) (increase(externalsecret_sync_calls_error[1h])) > 3
+          labels: {severity: warning}
+          annotations:
+            summary: "ExternalSecret {{ $labels.namespace }}/{{ $labels.name }} fails to sync"
+            description: "{{ $value | printf \"%.0f\" }} sync errors in the last hour (rate limit, missing item or field?). Its events say why."
+        - alert: ClusterSecretStoreNotReady
+          expr: clustersecretstore_status_condition{condition="Ready", status="False"} == 1
+          for: 10m
+          labels: {severity: critical}
+          annotations:
+            summary: "ClusterSecretStore {{ $labels.name }} is not Ready"
+            description: "Every ExternalSecret using it stops refreshing (token revoked or 1Password unreachable?)."
+    - name: cilium
+      rules:
+        - alert: CiliumAgentUnavailable
+          expr: kube_daemonset_status_number_unavailable{namespace="kube-system", daemonset="cilium"} > 0
+          for: 10m
+          labels: {severity: critical}
+          annotations:
+            summary: "{{ $value }} Cilium agent(s) unavailable"
+            description: "Pods on that node lose networking. kubectl -n kube-system get pods -l k8s-app=cilium -o wide."
+        - alert: CiliumEndpointRegenerationFailing
+          expr: sum by (pod) (rate(cilium_endpoint_regenerations_total{outcome="fail"}[5m])) > 0
+          for: 15m
+          labels: {severity: warning}
+          annotations:
+            summary: "Cilium on {{ $labels.pod }} fails to regenerate endpoints"
+            description: "Policy or datapath updates are not applied; check the agent's logs."
+    - name: cloudflared
+      rules:
+        - alert: CloudflaredTunnelDown
+          # "or absent": with both pods gone the metric disappears and sum() alone returns nothing.
+          expr: |
+            (sum by (namespace) (cloudflared_tunnel_ha_connections) < 1)
+            or label_replace(absent(cloudflared_tunnel_ha_connections), "namespace", "cloudflared", "", "")
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: "The Cloudflare Tunnel has no healthy connection"
+            description: "Public apps are unreachable from the internet."
+    - name: storage
+      rules:
+        - alert: PersistentVolumeUsageHigh
+          expr: |
+            kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes > 0.85
+          for: 15m
+          labels: {severity: warning}
+          annotations:
+            summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is {{ $value | humanizePercentage }} full"
+            description: "Expand it (proxmox-lvm allows expansion) or free space."

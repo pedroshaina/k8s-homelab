@@ -1,0 +1,18 @@
+# Dashboards as code: JSON files become one ConfigMap that Grafana's sidecar
+# loads into folder "Platform". argocd.json is vendored unchanged from argo-cd v3.5.3
+# examples/dashboard.json (uses a $datasource variable, so it works with the provisioned
+# Prometheus). To change a dashboard: export the JSON from Grafana and commit it here.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: monitoring
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: Platform
+configMapGenerator:
+  - name: platform-dashboards
+    files:
+      - argocd.json
+      - homelab-overview.json

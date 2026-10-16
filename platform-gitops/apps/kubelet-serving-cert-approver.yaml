@@ -1,0 +1,23 @@
+# Approves kubelet serving-certificate requests, so kubelets serve
+# CA-signed certificates and metrics-server verifies them. Must run before the Talos
+# rotate-server-certificates change: unapproved nodes can't serve logs/exec.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kubelet-serving-cert-approver
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: platform
+  source:
+    repoURL: git@github.com:your-github-user/platform-gitops.git
+    targetRevision: main
+    path: components/kubelet-serving-cert-approver
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kubelet-serving-cert-approver
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

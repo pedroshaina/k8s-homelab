@@ -1,0 +1,150 @@
+# kube-prometheus-stack Helm values: Prometheus Operator, Prometheus,
+# Alertmanager, Grafana, node-exporter, kube-state-metrics, default rules and dashboards.
+# CRDs come from apps/prometheus-operator-crds.yaml (wave -2).
+crds:
+  enabled: false
+
+defaultRules:
+  rules:
+    kubeProxy: false # Cilium replaces kube-proxy
+  disabled:
+    Watchdog: true # no dead man's switch
+
+kubeProxy:
+  enabled: false
+# etcd is not a pod on Talos: scraped by scrapeconfig-etcd.yaml (the chart's Endpoints object is
+# never applied — Argo CD excludes Endpoints). Its rules and dashboard stay on.
+# Controller-manager and scheduler are found by their pods' labels.
+kubeEtcd:
+  enabled: true
+  service:
+    enabled: false
+  serviceMonitor:
+    enabled: false
+
+prometheus:
+  prometheusSpec:
+    retention: 30d
+    retentionSize: 23GB # below the 25Gi PVC: the oldest blocks go first if ingestion grows
+    scrapeInterval: 30s
+    query: # one wide dashboard or team rule can't exhaust Prometheus' memory
+      timeout: 2m
+      maxSamples: 50000000
+    # Monitors, rules and probes from every namespace (teams included).
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    # Tenancy: series a team monitor scrapes carry the team's namespace, and every expression in a
+    # team rule is restricted to it. Platform namespaces are excluded: their monitors scrape metrics
+    # *about* other namespaces (kube-state-metrics, cAdvisor, ESO, cert-manager), whose namespace
+    # label enforcement would overwrite. A new platform namespace with monitors or rules goes here.
+    enforcedNamespaceLabel: namespace
+    excludedFromEnforcement:
+      - {resource: servicemonitors, namespace: argocd}
+      - {resource: podmonitors, namespace: argocd}
+      - {resource: prometheusrules, namespace: argocd}
+      - {resource: servicemonitors, namespace: cert-manager}
+      - {resource: podmonitors, namespace: cert-manager}
+      - {resource: prometheusrules, namespace: cert-manager}
+      - {resource: servicemonitors, namespace: cloudflared}
+      - {resource: podmonitors, namespace: cloudflared}
+      - {resource: prometheusrules, namespace: cloudflared}
+      - {resource: servicemonitors, namespace: external-dns}
+      - {resource: podmonitors, namespace: external-dns}
+      - {resource: prometheusrules, namespace: external-dns}
+      - {resource: servicemonitors, namespace: external-dns-public}
+      - {resource: podmonitors, namespace: external-dns-public}
+      - {resource: prometheusrules, namespace: external-dns-public}
+      - {resource: servicemonitors, namespace: external-secrets}
+      - {resource: podmonitors, namespace: external-secrets}
+      - {resource: prometheusrules, namespace: external-secrets}
+      - {resource: servicemonitors, namespace: kube-system}
+      - {resource: podmonitors, namespace: kube-system}
+      - {resource: prometheusrules, namespace: kube-system}
+      - {resource: servicemonitors, namespace: monitoring}
+      - {resource: podmonitors, namespace: monitoring}
+      - {resource: prometheusrules, namespace: monitoring}
+      - {resource: scrapeconfigs, namespace: monitoring}
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: proxmox-lvm
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 25Gi
+    resources:
+      requests: {cpu: 200m, memory: 1Gi}
+      limits: {memory: 2Gi}
+
+alertmanager:
+  alertmanagerSpec:
+    # Routing and receivers come from one global AlertmanagerConfig rendered from the onboarding
+    # file (components/alert-routing). Namespaced AlertmanagerConfigs are never loaded:
+    # the selector matches a label nothing carries.
+    alertmanagerConfiguration:
+      name: alert-routing
+    alertmanagerConfigSelector:
+      matchLabels:
+        example.com/namespaced-alertmanager-config: never
+    storage: # silences and the notification log survive restarts
+      volumeClaimTemplate:
+        spec:
+          storageClassName: proxmox-lvm
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 1Gi
+    resources:
+      requests: {cpu: 10m, memory: 48Mi}
+      limits: {memory: 128Mi}
+
+grafana:
+  # Stateless: datasources and dashboards come from Git; UI edits are not kept.
+  admin:
+    existingSecret: grafana-admin-password # external-secret.yaml
+    userKey: admin-user
+    passwordKey: admin-password
+  grafana.ini:
+    server:
+      root_url: https://grafana.example.com
+    users:
+      allow_sign_up: false
+    auth.anonymous:
+      enabled: false
+    unified_alerting: # Alertmanager is the one alerting system
+      enabled: false
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      url: http://loki.monitoring.svc:3100
+  sidecar:
+    dashboards:
+      # ConfigMaps only: teams can create Secrets (ExternalSecret templates) that the tenant policy
+      # can't inspect like a ConfigMap.
+      resource: configmap
+      folderAnnotation: grafana_folder
+      annotations: # the chart's own dashboards
+        grafana_folder: Kubernetes
+      provider:
+        foldersFromFilesStructure: true
+        allowUiUpdates: false
+  resources: # idles at ~215Mi; dashboard rendering and queries spike well above
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 768Mi}
+
+kube-state-metrics:
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+    limits: {memory: 128Mi}
+prometheus-node-exporter:
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 64Mi}
+prometheusOperator:
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 192Mi}

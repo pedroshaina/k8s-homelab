@@ -1,0 +1,23 @@
+# LB IPAM (replaces MetalLB's address pools): which IP a LoadBalancer Service gets.
+# .230 is its own pool, usable only by Services in namespace "gateway", so nothing else can
+# take the shared Gateway's address.
+apiVersion: cilium.io/v2
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: gateway
+spec:
+  blocks:
+    - start: 192.168.1.230
+      stop: 192.168.1.230
+  serviceSelector:
+    matchLabels:
+      io.kubernetes.service.namespace: gateway
+---
+apiVersion: cilium.io/v2
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: default
+spec:
+  blocks:
+    - start: 192.168.1.231
+      stop: 192.168.1.254

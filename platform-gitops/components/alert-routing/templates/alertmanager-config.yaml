@@ -1,0 +1,61 @@
+{{- $teams := include "alert-routing.teams" . | fromYamlArray }}
+# Alertmanager's one global config (alertmanagerSpec.alertmanagerConfiguration). Global, not one
+# namespaced AlertmanagerConfig per team: the operator forces continue: true on a namespaced
+# config's top route, so team alerts would also reach the platform's routes.
+# First match wins; no route continues.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: alert-routing
+  namespace: monitoring
+spec:
+  route:
+    receiver: platform # default: platform namespaces and cluster-scoped alerts (nodes, etcd)
+    groupBy: [alertname, namespace]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 24h
+    routes:
+      - receiver: "null" # info is context only, never sent
+        matchers:
+          - {name: severity, matchType: "=", value: info}
+      {{- range $teams }}
+      - receiver: {{ printf "team-%s" .name | quote }} # whoever owns the workload is told
+        matchers:
+          - name: namespace
+            matchType: "=~"
+            value: {{ $names := list }}{{ range .apps }}{{ $names = append $names .name }}{{ end }}{{ join "|" $names | quote }}
+        routes:
+          - receiver: {{ printf "team-%s" .name | quote }}
+            matchers:
+              - {name: severity, matchType: "=", value: critical}
+            repeatInterval: 4h
+      {{- end }}
+      - receiver: platform
+        matchers:
+          - {name: severity, matchType: "=", value: critical}
+        repeatInterval: 4h
+  receivers:
+    - name: "null"
+    - name: platform
+      discordConfigs:
+        - apiURL: {name: {{ .Values.platformWebhook | quote }}, key: secretValue}
+          sendResolved: true
+    {{- range $teams }}
+    - name: {{ printf "team-%s" .name | quote }}
+      discordConfigs:
+        - apiURL: {name: {{ .alertsWebhook | quote }}, key: secretValue}
+          sendResolved: true
+    {{- end }}
+  inhibitRules:
+    # A critical alert silences the matching warning/info for the same alert and namespace.
+    - sourceMatch: [{name: severity, matchType: "=", value: critical}]
+      targetMatch: [{name: severity, matchType: "=~", value: warning|info}]
+      equal: [namespace, alertname]
+    - sourceMatch: [{name: severity, matchType: "=", value: warning}]
+      targetMatch: [{name: severity, matchType: "=", value: info}]
+      equal: [namespace, alertname]
+    # A node that is down silences everything else about that node.
+    - sourceMatch: [{name: alertname, matchType: "=", value: KubeNodeNotReady}]
+      targetMatch: [{name: alertname, matchType: "!=", value: KubeNodeNotReady}]
+      equal: [node]

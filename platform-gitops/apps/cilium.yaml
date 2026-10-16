@@ -1,0 +1,37 @@
+# Argo CD owns Cilium day-2. Values: the frozen Talos bootstrap base from
+# the k8s-homelab (infra) repo, then the feature layer from this repo. Chart version must equal
+# cilium_version in k8s-homelab's infra/talos-cluster/terraform.tfvars — nothing checks it; bump
+# both (guide/11-day-2.md).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cilium
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: platform
+  sources:
+    - repoURL: https://helm.cilium.io
+      chart: cilium
+      targetRevision: 1.20.2
+      helm:
+        releaseName: cilium
+        valueFiles:
+          - $infra/infra/talos-cluster/cilium-values.yaml
+          - $values/components/cilium/values.yaml
+    - repoURL: git@github.com:your-github-user/k8s-homelab.git
+      targetRevision: main
+      ref: infra
+    - repoURL: git@github.com:your-github-user/platform-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true # Talos applied Cilium server-side; take field ownership the same way

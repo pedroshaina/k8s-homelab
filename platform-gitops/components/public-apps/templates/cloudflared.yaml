@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudflared
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false # holds the tunnel credentials Secret (synced by ESO)
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflared-config
+  namespace: cloudflared
+data:
+  config.yaml: |
+{{ include "public-apps.config" . | indent 4 }}
+---
+# Outbound-only tunnel to Cloudflare's edge; no inbound ports.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: cloudflared
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels: {app: cloudflared}
+  template:
+    metadata:
+      labels: {app: cloudflared}
+      annotations:
+        checksum/config: {{ include "public-apps.config" . | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: cloudflared
+          image: {{ .Values.image }}
+          args: [tunnel, --config, /etc/cloudflared/config/config.yaml, run]
+          ports:
+            - {name: metrics, containerPort: 2000}
+          readinessProbe:
+            httpGet: {path: /ready, port: metrics}
+          livenessProbe:
+            httpGet: {path: /ready, port: metrics}
+            initialDelaySeconds: 10
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          volumeMounts:
+            - {name: config, mountPath: /etc/cloudflared/config, readOnly: true}
+            - {name: creds, mountPath: /etc/cloudflared/creds, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: cloudflared-config}
+        - name: creds
+          secret: {secretName: credentials}

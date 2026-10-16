@@ -1,0 +1,22 @@
+# HTTPRoutes for platform UIs on the shared Gateway. Wave 2: after the Gateway (cilium-config,
+# wave 1). Argo CD reports an HTTPRoute as Progressing until a Gateway accepts it, and the root
+# app's waves wait on child health, so routes in an earlier wave would deadlock the root app.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-routes
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: platform
+  source:
+    repoURL: git@github.com:your-github-user/platform-gitops.git
+    targetRevision: main
+    path: components/platform-routes
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

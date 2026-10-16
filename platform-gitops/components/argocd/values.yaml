@@ -1,0 +1,36 @@
+# Argo CD Helm values (chart argo-cd). Used by Argo CD itself and by the bootstrap.
+global:
+  domain: argocd.example.com
+configs:
+  cm:
+    # Argo CD has no built-in health check for Applications, so a child Application counts as
+    # Healthy the moment it exists and sync waves in the root app wouldn't wait for it to
+    # converge. This standard check reports the child's own health instead.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil and obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+      return hs
+  params:
+    # TLS terminates at the Gateway; Argo CD itself serves plain HTTP behind it.
+    server.insecure: true
+dex:
+  enabled: false # no SSO yet
+notifications:
+  enabled: false # no notification targets yet
+# Metrics + ServiceMonitors (rendered only once the CRDs exist, so the
+# bootstrap Helm install is unaffected).
+controller:
+  metrics: {enabled: true, serviceMonitor: {enabled: true}}
+server:
+  metrics: {enabled: true, serviceMonitor: {enabled: true}}
+repoServer:
+  metrics: {enabled: true, serviceMonitor: {enabled: true}}
+applicationSet:
+  metrics: {enabled: true, serviceMonitor: {enabled: true}}

@@ -1,0 +1,10 @@
+# Prometheus scrapes podinfo's metrics port; the metrics land with namespace="podinfo".
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: podinfo
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: podinfo}
+  endpoints:
+    - {port: metrics, interval: 30s}

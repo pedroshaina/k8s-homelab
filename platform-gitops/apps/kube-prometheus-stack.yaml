@@ -1,0 +1,51 @@
+# kube-prometheus-stack: Prometheus, Alertmanager, Grafana, exporters.
+# Wave 3: its PVCs need the CSI plugin (wave 2). Routing comes from alert-routing (wave 3).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    # Server-side apply leaves no last-applied annotation: compare server-side too, or every
+    # API-server default (HTTPRoute weight/kind, Prometheus CR defaults) shows as drift.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  project: platform
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      targetRevision: 92.1.1
+      helm:
+        releaseName: kube-prometheus-stack
+        valueFiles:
+          - $values/components/kube-prometheus-stack/values.yaml
+    - repoURL: git@github.com:your-github-user/platform-gitops.git
+      targetRevision: main
+      ref: values
+    - repoURL: git@github.com:your-github-user/platform-gitops.git
+      targetRevision: main
+      path: components/kube-prometheus-stack
+      directory:
+        include: '{external-secret.yaml,httproute.yaml,scrapeconfig-etcd.yaml}'
+    - repoURL: git@github.com:your-github-user/platform-gitops.git
+      targetRevision: main
+      path: components/kube-prometheus-stack/dashboards
+    - repoURL: git@github.com:your-github-user/platform-gitops.git
+      targetRevision: main
+      path: components/kube-prometheus-stack/rules
+      directory:
+        include: '{platform.yaml}' # not platform.test.yaml (promtool input, not a manifest)
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: privileged # node-exporter: host PID/network; Alloy: host paths
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true # dashboards ConfigMaps exceed the client-side annotation limit

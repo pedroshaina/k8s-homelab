@@ -1,0 +1,36 @@
+# Argo CD manages its own Helm release. The one-time install
+# (guide/07-argocd.md) uses sources[0]'s chart repo, name and version, so it always matches this file.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: platform
+  sources:
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-cd
+      targetRevision: 10.9.4
+      helm:
+        releaseName: argocd
+        valueFiles:
+          - $values/components/argocd/values.yaml
+    - repoURL: git@github.com:your-github-user/platform-gitops.git
+      targetRevision: main
+      ref: values
+    - repoURL: git@github.com:your-github-user/platform-gitops.git
+      targetRevision: main
+      path: components/argocd
+      directory:
+        include: repo-ghcr-sergelogvinov.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true # Argo CD's CRDs exceed the client-side last-applied annotation limit

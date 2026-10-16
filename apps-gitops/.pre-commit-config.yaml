@@ -1,0 +1,34 @@
+# Checks that run on every commit (after `pre-commit install`) and in CI (`pre-commit run --all-files`).
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+
+  - repo: local
+    hooks:
+      # kubeconform on every app manifest (tools, not scripts). The CRD catalog
+      # is pinned to a commit: schema changes arrive as reviewed bumps.
+      - id: kubeconform
+        name: Kubernetes manifests are valid (kubeconform)
+        entry: >-
+          kubeconform -strict -summary -schema-location default
+          -schema-location https://raw.githubusercontent.com/datreeio/CRDs-catalog/f1e7f6bc0537bf0622ffe6e47dbaa85914fabbec/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+        language: system
+        files: ^apps/.*\.ya?ml$
+        exclude: (\.sops\.yaml|(^|/)(values|kustomization)\.yaml)

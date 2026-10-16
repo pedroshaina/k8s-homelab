@@ -1,0 +1,14 @@
+# cert-manager Helm values.
+crds:
+  enabled: true
+extraArgs:
+  # The DNS-01 self-check must not use cluster DNS: in-cluster, example.com resolves to dns01's
+  # internal zone, which never holds the _acme-challenge records (split-horizon).
+  - --dns01-recursive-nameservers-only
+  - --dns01-recursive-nameservers=1.1.1.1:53,9.9.9.9:53
+# ServiceMonitor for the controller.
+prometheus:
+  enabled: true
+  servicemonitor:
+    enabled: true
+    honorLabels: true # keep each metric's namespace (the Certificate's), not the target's
